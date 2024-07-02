@@ -150,6 +150,7 @@ trainer = Trainer(
 )
 acc = predict_acc(trainer)
 acc_score["after"] = acc
+before = acc_score["before"]
+after = acc_score["after"]
 
-print(f"accuracy before LoRA fine-tune : {acc_score["before"]}\n" + 
-      f"accuracy after LoRA fine-tune : {acc_score["after"]}")     
+print(f"accuracy before LoRA fine-tune : {before}\naccuracy after LoRA fine-tune : {after}")     
