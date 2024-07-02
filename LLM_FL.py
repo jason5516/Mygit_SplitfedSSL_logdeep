@@ -100,7 +100,7 @@ acc_score["before"] = acc
 
 
 client_weights = [1/client_num for i in range(client_num)]
-global_epochs = 2
+global_epochs = 5
 
 for epoch in range(global_epochs):
     print(f"------------epoch {epoch}------------")
