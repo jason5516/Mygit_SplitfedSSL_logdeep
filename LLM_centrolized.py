@@ -1,6 +1,7 @@
 import torch
 import copy
 import numpy as np
+import random
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -9,12 +10,24 @@ from transformers import AutoTokenizer, GPT2ForSequenceClassification, Trainer, 
 from transformers import DataCollatorWithPadding
 from peft import LoraConfig, get_peft_model
 
+def set_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+# 设置随机种子
+set_seed(42)
+
 accuracy_metric = load_metric("accuracy")
 
 def predict_acc(trainer):
     
     accuracy_metric = load_metric("accuracy")
-    predictions = trainer.predict(tokenized_datasets["test"])
+    predictions = trainer.predict(tokenized_datasets["validation"])
     pred = np.argmax(predictions.predictions, axis=-1)
     accuracy = accuracy_metric.compute(predictions=pred, references=predictions.label_ids)
     return accuracy
@@ -22,7 +35,7 @@ def predict_acc(trainer):
 
 # 加載 IMDB 資料集
 # dataset = load_dataset("imdb")
-dataset = load_dataset("glue", "mrpc")
+dataset = load_dataset("glue", "qnli")
 
 # 初始化 GPT-2 的 tokenizer 並設置 padding token
 tokenizer = AutoTokenizer.from_pretrained("gpt2", use_fast=True)
@@ -32,17 +45,19 @@ data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
 # 定義 tokenization 函數
 def tokenize_function(examples):
     # return tokenizer(examples["text"], padding="max_length", truncation=True, max_length=512)
-    return tokenizer(examples["sentence1"], examples["sentence2"], truncation=True, max_length=128)
+    return tokenizer(examples["question"], examples["sentence"], truncation=True, max_length=128)
+    # return tokenizer(examples["sentence"], truncation=True, max_length=128)
 
 # 對資料集進行 tokenization
 tokenized_datasets = dataset.map(tokenize_function, batched=True)
 
 # 移除無用的列，只保留 input_ids 和 labels
 # tokenized_datasets = tokenized_datasets.remove_columns(["text"])
-tokenized_datasets = tokenized_datasets.remove_columns(["sentence1", "sentence2", "idx"])
+tokenized_datasets = tokenized_datasets.remove_columns(["question", "sentence", "idx"])
 tokenized_datasets = tokenized_datasets.rename_column("label", "labels")
 tokenized_datasets.set_format("torch")
 
+save_dir = "./llm_models/centrelized/qnli/"
 client_num = 5
 client_datasets = [{} for i in range(client_num)]
 for data in tokenized_datasets:
@@ -68,7 +83,7 @@ lora_config = LoraConfig(
 
 # 訓練參數設置
 training_args = TrainingArguments(
-    output_dir="./llm_models/gpt2_LoRA/server",
+    output_dir=save_dir,
     evaluation_strategy="epoch",
     learning_rate=2e-5,
     per_device_train_batch_size=4,
@@ -92,7 +107,7 @@ trainer = Trainer(
     model=model,
     args=training_args,
     train_dataset=tokenized_datasets["train"],
-    eval_dataset=tokenized_datasets["test"],
+    eval_dataset=tokenized_datasets["validation"],
     data_collator=data_collator,
 )
 acc = predict_acc(trainer)
@@ -103,17 +118,21 @@ trainer = Trainer(
     model=peft_model,
     args=training_args,
     train_dataset=tokenized_datasets["train"],
-    eval_dataset=tokenized_datasets["test"],
+    eval_dataset=tokenized_datasets["validation"],
     data_collator=data_collator,
 )
 trainer.train()
+
+save_dir = "./llm_models/centrelized/"
+print(f"save pretrained model in {save_dir}")
+peft_model.save_pretrained(save_dir)
     
 # 預測未 fine-tune 的結果
 trainer = Trainer(
     model=model,
     args=training_args,
     train_dataset=tokenized_datasets["train"],
-    eval_dataset=tokenized_datasets["test"],
+    eval_dataset=tokenized_datasets["validation"],
     data_collator=data_collator,
 )
 acc = predict_acc(trainer)
